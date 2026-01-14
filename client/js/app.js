@@ -1,0 +1,481 @@
+/**
+ * Main Application Controller
+ * Coordinates all modules: Gaze Tracking, Bluetooth, Data Collection, API
+ */
+
+// Configuration
+const CONFIG = {
+    USE_MOUSE_DEBUG: false,
+    Y_OFFSET_CORRECTION: 0,
+    SMOOTHING_FACTOR: 0.1,
+    SERVER_URL: 'http://localhost:8000',
+    WINDOW_SIZE: 10000 // 10 seconds
+};
+
+// Initialize modules
+const gazeTracker = new GazeTracker({
+    useMouseDebug: CONFIG.USE_MOUSE_DEBUG,
+    yOffsetCorrection: CONFIG.Y_OFFSET_CORRECTION,
+    smoothingFactor: CONFIG.SMOOTHING_FACTOR
+});
+
+const polarDevice = new PolarVeritySense();
+const dataCollector = new DataCollector();
+const apiClient = new APIClient(CONFIG.SERVER_URL);
+
+// State
+let isRecording = false;
+let currentPrediction = null;
+let windowCheckInterval = null;
+
+/**
+ * Initialize application
+ */
+async function initialize() {
+    console.log('Initializing CAPLAN application...');
+
+    // Setup UI
+    setupUI();
+
+    // Initialize gaze tracker
+    try {
+        await gazeTracker.initialize();
+        console.log('Gaze tracker initialized');
+    } catch (error) {
+        console.error('Failed to initialize gaze tracker:', error);
+        showError('Failed to initialize gaze tracking');
+    }
+
+    // Setup callbacks
+    setupCallbacks();
+
+    // Check server connection
+    checkServerConnection();
+
+    console.log('Application initialized');
+}
+
+/**
+ * Setup UI event handlers
+ */
+function setupUI() {
+    // Wait for DOM to be ready
+    setTimeout(() => {
+        // Calibration points
+        document.querySelectorAll('.cal-point').forEach(point => {
+            point.addEventListener('click', (e) => {
+                gazeTracker.calibrate(e, point);
+            });
+        });
+
+        // Start experiment button
+        const startBtn = document.querySelector('#calibration-overlay button');
+        if (startBtn) {
+            startBtn.addEventListener('click', startExperiment);
+        }
+
+        // Download CSV button
+        const downloadBtn = document.querySelector('button[onclick="downloadCSV()"]');
+        if (downloadBtn) {
+            downloadBtn.onclick = downloadCSV;
+        }
+
+        // Connect Bluetooth button
+        const connectBtn = document.getElementById('connect-bluetooth');
+        if (connectBtn) {
+            connectBtn.addEventListener('click', connectBluetooth);
+        }
+
+        // Show debug indicator if in mouse mode
+        if (CONFIG.USE_MOUSE_DEBUG) {
+            const debugIndicator = document.getElementById('debug-indicator');
+            if (debugIndicator) {
+                debugIndicator.style.display = 'block';
+            }
+        }
+    }, 100);
+}
+
+/**
+ * Setup module callbacks
+ */
+function setupCallbacks() {
+    // Gaze tracker callback
+    gazeTracker.onGazeUpdate((gazeData) => {
+        dataCollector.addGazePoint(
+            gazeData.x,
+            gazeData.y,
+            gazeData.aoiID,
+            gazeData.timestamp
+        );
+        updateStatus();
+    });
+
+    // Bluetooth callback
+    polarDevice.onBPMUpdate((hrData) => {
+        dataCollector.addHeartRate(hrData.bpm, hrData.timestamp);
+        updateHeartRateDisplay(hrData.bpm);
+    });
+
+    polarDevice.onConnectionStatusChange((connected, message) => {
+        updateBluetoothStatus(connected, message);
+    });
+
+    // Data collector window callback
+    dataCollector.onWindowComplete(async (windowData) => {
+        console.log('Window complete, sending to server:', {
+            window_id: windowData.window_id,
+            gaze_points: windowData.gaze_log.length,
+            interactions: windowData.interactions.length,
+            heart_rate_samples: windowData.heart_rate.length
+        });
+        await sendWindowToServer(windowData);
+    });
+
+    // Interaction events
+    window.addEventListener('click', () => {
+        dataCollector.addInteraction('click');
+    });
+
+    window.addEventListener('scroll', () => {
+        dataCollector.addInteraction('scroll');
+    });
+
+    // Mouse move (debug mode)
+    if (CONFIG.USE_MOUSE_DEBUG) {
+        window.addEventListener('mousemove', (e) => {
+            gazeTracker.handleMouseMove(e);
+        });
+    }
+}
+
+/**
+ * Start experiment
+ */
+function startExperiment() {
+    // Hide calibration overlay
+    const overlay = document.getElementById('calibration-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+
+    // Show content
+    const content = document.getElementById('content-container');
+    if (content) {
+        content.style.display = 'block';
+    }
+
+    // Start recording
+    isRecording = true;
+    gazeTracker.start();
+    dataCollector.start();
+
+    // Start periodic window check (every 1 second)
+    if (windowCheckInterval) {
+        clearInterval(windowCheckInterval);
+    }
+    windowCheckInterval = setInterval(() => {
+        if (isRecording) {
+            dataCollector.checkWindowComplete();
+        }
+    }, 1000);
+
+    console.log('Experiment started');
+}
+
+/**
+ * Connect to Polar Verity Sense
+ */
+async function connectBluetooth() {
+    try {
+        const btn = document.getElementById('connect-bluetooth');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+        }
+
+        await polarDevice.connect();
+        console.log('Connected to Polar Verity Sense');
+
+        if (btn) {
+            btn.textContent = 'Disconnect';
+            btn.disabled = false;
+            btn.onclick = disconnectBluetooth;
+        }
+    } catch (error) {
+        console.error('Bluetooth connection failed:', error);
+        showError(`Bluetooth connection failed: ${error.message}`);
+        
+        const btn = document.getElementById('connect-bluetooth');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Connect Polar Verity Sense';
+        }
+    }
+}
+
+/**
+ * Disconnect from Polar Verity Sense
+ */
+async function disconnectBluetooth() {
+    try {
+        await polarDevice.disconnect();
+        console.log('Disconnected from Polar Verity Sense');
+
+        const btn = document.getElementById('connect-bluetooth');
+        if (btn) {
+            btn.textContent = 'Connect Polar Verity Sense';
+            btn.onclick = connectBluetooth;
+        }
+    } catch (error) {
+        console.error('Disconnect error:', error);
+    }
+}
+
+/**
+ * Send window data to server
+ */
+async function sendWindowToServer(windowData) {
+    try {
+        console.log('Sending window to server:', {
+            window_id: windowData.window_id,
+            gaze_count: windowData.gaze_log.length,
+            interactions: windowData.interactions.length,
+            heart_rate: windowData.heart_rate.length
+        });
+        
+        const result = await apiClient.analyzeWindow(windowData);
+        currentPrediction = result;
+        
+        console.log('Server response received:', result);
+        
+        if (result.status === 'success') {
+            updatePredictionDisplay(result);
+        } else {
+            console.error('Server returned error:', result.error);
+            showError(`Server error: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error sending window to server:', error);
+        showError(`Failed to analyze window data: ${error.message}`);
+        
+        // Update display to show error
+        const serverResponseEl = document.getElementById('server-response');
+        if (serverResponseEl) {
+            serverResponseEl.innerHTML = `
+                <div style="border: 2px solid #f44336; padding: 10px; margin-top: 10px; border-radius: 5px; background: #ffebee;">
+                    <strong>Error:</strong> ${error.message}
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * Update status display
+ */
+function updateStatus() {
+    const stats = dataCollector.getStats();
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+        statusEl.textContent = `Points: ${stats.gazePoints} | HR: ${stats.heartRateSamples} | Time: ${Math.round(stats.recordingTime / 1000)}s`;
+    }
+}
+
+/**
+ * Update heart rate display
+ */
+function updateHeartRateDisplay(bpm) {
+    const hrEl = document.getElementById('heart-rate');
+    if (hrEl) {
+        hrEl.textContent = `Heart Rate: ${bpm} BPM`;
+    }
+}
+
+/**
+ * Update Bluetooth status display
+ */
+function updateBluetoothStatus(connected, message) {
+    const btEl = document.getElementById('bluetooth-status');
+    if (btEl) {
+        if (connected) {
+            btEl.textContent = `Bluetooth: Connected (${message})`;
+            btEl.style.color = 'green';
+        } else {
+            btEl.textContent = `Bluetooth: ${message}`;
+            btEl.style.color = 'red';
+        }
+    }
+}
+
+/**
+ * Update prediction display
+ */
+function updatePredictionDisplay(result) {
+    // Update simple prediction display
+    const predEl = document.getElementById('prediction');
+    if (predEl) {
+        if (result.state) {
+            predEl.textContent = `State: ${result.state}`;
+            predEl.style.color = result.intervention_needed ? 'red' : 'green';
+        }
+    }
+
+    // Update detailed server response box
+    const serverResponseEl = document.getElementById('server-response');
+    if (serverResponseEl) {
+        if (result.status === 'success') {
+            const timestamp = new Date().toLocaleTimeString();
+            serverResponseEl.innerHTML = `
+                <div style="border: 2px solid ${result.intervention_needed ? '#f44336' : '#4caf50'}; padding: 10px; margin-top: 10px; border-radius: 5px; background: ${result.intervention_needed ? '#ffebee' : '#e8f5e9'}">
+                    <strong>Latest Detection (${timestamp}):</strong><br>
+                    <strong>State:</strong> ${result.state} (ID: ${result.state_id})<br>
+                    <strong>Intervention Needed:</strong> ${result.intervention_needed ? 'YES' : 'NO'}<br>
+                    <strong>Window ID:</strong> ${result.window_id || 'N/A'}<br>
+                    <details style="margin-top: 5px;">
+                        <summary>Features</summary>
+                        <pre style="font-size: 10px; margin-top: 5px;">${JSON.stringify(result.features || {}, null, 2)}</pre>
+                    </details>
+                </div>
+            `;
+        } else {
+            serverResponseEl.innerHTML = `
+                <div style="border: 2px solid #ff9800; padding: 10px; margin-top: 10px; border-radius: 5px; background: #fff3e0;">
+                    <strong>Error:</strong> ${result.error || 'Unknown error'}
+                </div>
+            `;
+        }
+    }
+
+    // Show intervention alert if needed
+    if (result.intervention_needed) {
+        showInterventionAlert(result.state);
+    }
+}
+
+/**
+ * Show intervention alert
+ */
+function showInterventionAlert(state) {
+    // You can implement a visual alert here
+    console.log(`INTERVENTION NEEDED: ${state}`);
+    // Example: highlight current paragraph, show notification, etc.
+}
+
+/**
+ * Show error message
+ */
+function showError(message) {
+    console.error(message);
+    // You can implement error display UI here
+    alert(message);
+}
+
+/**
+ * Check server connection
+ */
+async function checkServerConnection() {
+    const isHealthy = await apiClient.checkHealth();
+    const serverEl = document.getElementById('server-status');
+    if (serverEl) {
+        if (isHealthy) {
+            serverEl.textContent = 'Server: Connected';
+            serverEl.style.color = 'green';
+        } else {
+            serverEl.textContent = 'Server: Disconnected';
+            serverEl.style.color = 'red';
+        }
+    }
+}
+
+/**
+ * Download CSV
+ */
+function downloadCSV() {
+    try {
+        const csv = dataCollector.exportCSV();
+        
+        if (!csv || csv.length < 50) {
+            alert('No data to export. Make sure you are recording data.');
+            return;
+        }
+        
+        // Create blob instead of data URI to avoid size limits
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `caplan_data_${Date.now()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        
+        // Cleanup
+        setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+        
+        console.log('CSV exported successfully');
+    } catch (error) {
+        console.error('Error exporting CSV:', error);
+        alert('Error exporting CSV: ' + error.message);
+    }
+}
+
+// Make functions globally accessible for inline handlers
+window.startExperiment = startExperiment;
+window.downloadCSV = downloadCSV;
+window.connectBluetooth = connectBluetooth;
+window.disconnectBluetooth = disconnectBluetooth;
+
+/**
+ * Test function to manually send a window (for debugging)
+ */
+window.testWindowSend = async function() {
+    if (!isRecording) {
+        alert('Please start recording first!');
+        return;
+    }
+    
+    const stats = dataCollector.getStats();
+    if (stats.gazePoints === 0) {
+        alert('No gaze data collected yet!');
+        return;
+    }
+    
+    // Force check for complete windows
+    dataCollector.checkWindowComplete();
+    
+    // Also create a test window with last 10 seconds of data
+    const currentTime = performance.now() - (dataCollector.startTime || 0);
+    const windowStart = Math.max(0, currentTime - 10000);
+    const windowEnd = currentTime;
+    
+    // Get data using the collector's getter methods
+    const allGaze = dataCollector.getGazeLogs();
+    const allInteractions = dataCollector.getInteractionLogs();
+    const allHeartRate = dataCollector.getHeartRateLogs();
+    const startTime = dataCollector.getStartTime();
+    
+    const testWindow = {
+        window_id: 'test_window_manual',
+        start_time: Math.round(windowStart),
+        end_time: Math.round(windowEnd),
+        gaze_log: allGaze.filter(g => g.t >= windowStart && g.t < windowEnd),
+        interactions: allInteractions.filter(i => i.t >= windowStart && i.t < windowEnd),
+        heart_rate: allHeartRate.filter(hr => hr.t >= windowStart && hr.t < windowEnd)
+    };
+    
+    console.log('Test window data:', {
+        window_id: testWindow.window_id,
+        gaze_points: testWindow.gaze_log.length,
+        interactions: testWindow.interactions.length,
+        heart_rate_samples: testWindow.heart_rate.length,
+        time_range: `${windowStart}ms - ${windowEnd}ms`
+    });
+    
+    await sendWindowToServer(testWindow);
+};
+
+// Initialize on load
+window.addEventListener('load', initialize);

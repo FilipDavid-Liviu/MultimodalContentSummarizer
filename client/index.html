@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CAPLAN: SENSE Stage (Real Calibration)</title>
+    <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+    <style>
+        body { font-family: 'Georgia', serif; line-height: 1.6; margin: 0; padding: 0; }
+        
+        /* The Reading Area */
+        #content-container {
+            max-width: 800px;
+            margin: 50px auto;
+            display: none; 
+        }
+        
+        /* Huge padding for easier hits */
+        p {
+            padding: 60px;       
+            margin-bottom: 120px; 
+            background-color: #f9f9f9; 
+            border-radius: 10px;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .active-aoi { 
+            background-color: #e0f7fa; 
+            border-color: #00acc1;
+            transform: scale(1.02); 
+        }
+
+        /* Calibration UI */
+        #calibration-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #f0f0f0; z-index: 100; text-align: center; padding-top: 10%;
+        }
+        .cal-point {
+            width: 40px; height: 40px; background: red; border-radius: 50%;
+            position: absolute; cursor: pointer; border: 3px solid white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+        
+        /* Controls */
+        #controls { position: fixed; top: 10px; right: 10px; z-index: 500; background: white; padding: 10px; border: 1px solid #ccc; }
+        button { padding: 10px; cursor: pointer; font-weight: bold; margin-bottom: 5px; display: block; width: 100%; }
+        #debug-indicator { color: red; font-weight: bold; font-size: 12px; margin-bottom: 5px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="calibration-overlay">
+        <h2>Calibration Phase</h2>
+        <p>1. STARE at a red dot.<br>2. CLICK it 3-5 times while looking at it.<br>3. Do this for all 4 dots.</p>
+        <div class="cal-point" style="top: 20%; left: 20%;" onclick="calibrate(event, this)"></div>
+        <div class="cal-point" style="top: 20%; right: 20%;" onclick="calibrate(event, this)"></div>
+        <div class="cal-point" style="bottom: 20%; left: 20%;" onclick="calibrate(event, this)"></div>
+        <div class="cal-point" style="bottom: 20%; right: 20%;" onclick="calibrate(event, this)"></div>
+        <button onclick="startExperiment()" style="margin-top: 20px;">Finish & Start Reading</button>
+    </div>
+
+    <div id="controls">
+        <div id="debug-indicator"> MOUSE DEBUG MODE ON</div>
+        <button onclick="downloadCSV()">Download Logs (CSV)</button>
+        <div id="status">Points: 0</div>
+    </div>
+
+    <div id="content-container">
+        <h1>The History of Affective Computing</h1>
+        <p id="p1">Paragraph 1: Affective computing is the study and development of systems and devices that can recognize, interpret, process, and simulate human affects. It is an interdisciplinary field spanning computer science, psychology, and cognitive science.</p>
+        <p id="p2">Paragraph 2: The core ingenuity of the CAPLAN architecture lies in its minimalist approach, which effectively decouples the computationally intensive Machine Learning classification task from the client-side interaction.</p>
+        <p id="p3">Paragraph 3: By executing the ANALYZE stage offline using a pre-trained Random Forest model derived from public datasets, the system dramatically reduces complexity and cost while leveraging validated research.</p>
+        <p id="p4">Paragraph 4 (Hard): This section is intentionally complex. The Environmental Fixation Ratio (EFR) combined with concurrent interaction events allows the system to distinguish environmental Frustration from mere cognitive Confusion.</p>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const USE_MOUSE_DEBUG = false;     
+        const Y_OFFSET_CORRECTION = 0;     // Set to 0 first. Increase to 100 if gaze is too low.
+        const SMOOTHING_FACTOR = 0.1;      // 0.1 = VERY SMOOTH (Laggy but stable)
+
+        // --- STATE ---
+        let prevX = 0; let prevY = 0;
+        let dataLogs = []; 
+        let isRecording = false;
+        let activeInteraction = { clicked: 0, scrolled: 0 };
+
+        window.onload = async function() {
+            if (USE_MOUSE_DEBUG) {
+                document.getElementById('debug-indicator').style.display = 'block';
+            } else {
+                await webgazer.setRegression('ridge') 
+                    .setGazeListener(gazeListener)
+                    .saveDataAcrossSessions(true)
+                    .begin();
+                
+                // turn off video feed box to see screen better (optional)
+                webgazer.showVideo(true); 
+                webgazer.showFaceOverlay(false); 
+                webgazer.showFaceFeedbackBox(false); 
+                webgazer.showPredictionPoints(true); 
+            }
+        };
+
+        // --- REAL CALIBRATION FUNCTION ---
+        function calibrate(event, el) {
+            // 1. Tell WebGazer: "The user's eye is looking at these coordinates"
+            webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+            
+            // 2. Visual Feedback
+            el.style.backgroundColor = '#00ff00'; 
+            el.style.transform = "scale(0.8)";
+            
+            // 3. Re-calibration trick: Record it multiple times per click for better weight
+            // (WebGazer learns better with more data points)
+             webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+        }
+
+        function gazeListener(data, clock) {
+            if (!data || !isRecording) return;
+
+            // SMOOTHING
+            if (prevX === 0) { prevX = data.x; prevY = data.y; }
+            const smoothX = (data.x * SMOOTHING_FACTOR) + (prevX * (1 - SMOOTHING_FACTOR));
+            const smoothY = (data.y * SMOOTHING_FACTOR) + (prevY * (1 - SMOOTHING_FACTOR));
+            prevX = smoothX; prevY = smoothY;
+
+            // OFFSET CORRECTION
+            let finalY = smoothY;
+            if (!USE_MOUSE_DEBUG) finalY = smoothY - Y_OFFSET_CORRECTION;
+
+            // HIT TEST
+            let aoi_id = "NONE";
+            const element = document.elementFromPoint(smoothX, finalY);
+            
+            if (element && element.tagName === 'P') {
+                aoi_id = element.id;
+                highlightAOI(element);
+            } else {
+                clearHighlights();
+            }
+
+            dataLogs.push({
+                timestamp: Math.round(clock),
+                gazeX: Math.round(smoothX),
+                gazeY: Math.round(finalY),
+                aoiID: aoi_id,
+                clicked: activeInteraction.clicked,
+                scrolled: activeInteraction.scrolled
+            });
+            activeInteraction.clicked = 0; activeInteraction.scrolled = 0;
+            document.getElementById('status').innerText = `Points: ${dataLogs.length}`;
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (!USE_MOUSE_DEBUG || !isRecording) return;
+            gazeListener({ x: e.clientX, y: e.clientY }, performance.now());
+        });
+
+        window.addEventListener('click', () => { activeInteraction.clicked = 1; });
+        window.addEventListener('scroll', () => { activeInteraction.scrolled = 1; });
+
+        function highlightAOI(el) {
+            clearHighlights();
+            el.classList.add('active-aoi');
+        }
+        function clearHighlights() {
+            document.querySelectorAll('p').forEach(p => p.classList.remove('active-aoi'));
+        }
+        function startExperiment() {
+            // 1. Hide the UI
+            document.getElementById('calibration-overlay').style.display = 'none';
+            document.getElementById('content-container').style.display = 'block';
+            isRecording = true;
+            
+            if (!USE_MOUSE_DEBUG) {
+                // 2. Resume prediction
+                webgazer.resume(); 
+                
+                // 3. THE FIX: STOP LEARNING FROM THE MOUSE
+                // This tells WebGazer to stop treating mouse movements as training data.
+                // The model is now "Frozen" based on your calibration.
+                webgazer.removeMouseEventListeners(); 
+                
+                console.log("Model Frozen. No longer learning from mouse.");
+            }
+        }
+        function downloadCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,Timestamp,GazeX,GazeY,AOI_ID,Click,Scroll\n";
+            dataLogs.forEach(row => {
+                csvContent += `${row.timestamp},${row.gazeX},${row.gazeY},${row.aoiID},${row.clicked},${row.scrolled}\n`;
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "caplan_gaze_data.csv");
+            document.body.appendChild(link);
+            link.click();
+        }
+    </script>
+</body>
+</html>
+

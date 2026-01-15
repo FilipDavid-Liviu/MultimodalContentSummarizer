@@ -27,6 +27,10 @@ const apiClient = new APIClient(CONFIG.SERVER_URL);
 let isRecording = false;
 let currentPrediction = null;
 let windowCheckInterval = null;
+window.calibrationProgress = {
+    calibrated: new Set(),
+    total: 9
+};
 
 /**
  * Initialize application
@@ -56,20 +60,69 @@ async function initialize() {
 }
 
 /**
+ * Update calibration progress
+ */
+window.updateCalibrationProgress = function() {
+    const calibrated = document.querySelectorAll('.cal-point.calibrated').length;
+    const progressText = document.getElementById('cal-progress-text');
+    const progressFill = document.getElementById('cal-progress-fill');
+    const finishBtn = document.getElementById('cal-finish-btn');
+    
+    if (progressText) {
+        progressText.textContent = `${calibrated}/${window.calibrationProgress.total} points calibrated`;
+    }
+    
+    if (progressFill) {
+        const percentage = (calibrated / window.calibrationProgress.total) * 100;
+        progressFill.style.width = `${percentage}%`;
+        
+        // Change color based on progress
+        if (percentage === 100) {
+            progressFill.style.background = '#4caf50';
+        } else if (percentage >= 50) {
+            progressFill.style.background = '#ff9800';
+        } else {
+            progressFill.style.background = '#f44336';
+        }
+    }
+    
+    // Show finish button when at least 5 points are calibrated
+    if (finishBtn) {
+        if (calibrated >= 5) {
+            finishBtn.style.display = 'block';
+            if (calibrated === window.calibrationProgress.total) {
+                finishBtn.textContent = '✓ Perfect! All Points Calibrated - Start Reading';
+                finishBtn.style.background = '#4caf50';
+                finishBtn.style.color = 'white';
+            } else if (calibrated >= 7) {
+                finishBtn.textContent = `Good! (${calibrated}/9) - Start Reading`;
+                finishBtn.style.background = '#ff9800';
+            } else {
+                finishBtn.textContent = `Minimum Calibrated (${calibrated}/9) - Start Reading`;
+                finishBtn.style.background = '#ff9800';
+            }
+        } else {
+            finishBtn.style.display = 'none';
+        }
+    }
+};
+
+/**
  * Setup UI event handlers
  */
 function setupUI() {
     // Wait for DOM to be ready
     setTimeout(() => {
-        // Calibration points
-        document.querySelectorAll('.cal-point').forEach(point => {
+        // Calibration points - 9-point grid
+        document.querySelectorAll('.cal-point').forEach((point, index) => {
             point.addEventListener('click', (e) => {
+                e.stopPropagation();
                 gazeTracker.calibrate(e, point);
             });
         });
 
         // Start experiment button
-        const startBtn = document.querySelector('#calibration-overlay button');
+        const startBtn = document.getElementById('cal-finish-btn');
         if (startBtn) {
             startBtn.addEventListener('click', startExperiment);
         }

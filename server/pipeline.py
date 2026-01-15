@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, StratifiedKFold, RandomizedSearchCV, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 import warnings
@@ -91,34 +91,45 @@ def run_training_pipeline():
     print("\n[6/7] Performing hyperparameter tuning with GridSearchCV...")
     print("   This may take a few minutes...")
     
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
     # Define parameter grid for tuning
-    param_grid = {
-        'n_estimators': [50, 100, 200],
-        'max_depth': [5, 10, 15, 20, None],
+    param_dist = {
+        'n_estimators': [300, 600, 1000],
+        'max_depth': [None, 10, 20, 30],
         'min_samples_split': [2, 5, 10],
         'min_samples_leaf': [1, 2, 4],
-        'max_features': ['sqrt', 'log2', None]
+        'max_features': ['sqrt', 0.5, 0.75],
+        'bootstrap': [True],
+        'class_weight': ['balanced', 'balanced_subsample'],
+        'max_samples': [0.7, 0.9, None]
     }
     
     # Base model
-    base_rf = RandomForestClassifier(random_state=42, n_jobs=-1)
-    
-    # GridSearchCV with 5-fold cross-validation
-    grid_search = GridSearchCV(
-        estimator=base_rf,
-        param_grid=param_grid,
-        cv=5,
-        scoring='accuracy',
+    base_rf = RandomForestClassifier(
+        random_state=42,
         n_jobs=-1,
-        verbose=1
+        oob_score=True
     )
     
-    grid_search.fit(X_train, y_train)
+    # GridSearchCV with 5-fold cross-validation
+    search = RandomizedSearchCV(
+        estimator=base_rf,
+        param_distributions=param_dist,
+        n_iter=405,
+        cv=cv,
+        scoring='accuracy',
+        n_jobs=-1,
+        verbose=1,
+        random_state=42
+    )
+    
+    search.fit(X_train, y_train)
     
     # Get best model
-    best_model = grid_search.best_estimator_
-    best_params = grid_search.best_params_
-    best_score = grid_search.best_score_
+    best_model = search.best_estimator_
+    best_params = search.best_params_
+    best_score = search.best_score_
     
     print(f"\n   Best cross-validation accuracy: {best_score:.4f}")
     print("   Best hyperparameters:")

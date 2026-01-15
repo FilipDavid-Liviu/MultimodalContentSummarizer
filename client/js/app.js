@@ -18,7 +18,7 @@ const gazeTracker = new GazeTracker({
     yOffsetCorrection: CONFIG.Y_OFFSET_CORRECTION,
     smoothingFactor: CONFIG.SMOOTHING_FACTOR
 });
-
+const contentManager = new ContentManager('content-container');
 const polarDevice = new PolarVeritySense();
 const dataCollector = new DataCollector();
 const apiClient = new APIClient(CONFIG.SERVER_URL);
@@ -113,6 +113,28 @@ window.updateCalibrationProgress = function() {
 function setupUI() {
     // Wait for DOM to be ready
     setTimeout(() => {
+        const fileInput = document.getElementById('text-file-input');
+        
+        if (fileInput) {
+            fileInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                console.log("File detected:", file.name);
+
+                try {
+                    // Call the method on the existing instance
+                    const contentMap = await contentManager.processFile(file);
+                    
+                    // Sync with backend
+                    const result = await apiClient.registerContent(contentMap);
+                    console.log('Server synced successfully:', result);
+                    
+                } catch (err) {
+                    console.error('Processing failed:', err);
+                }
+            });
+        }
         // Calibration points - 9-point grid
         document.querySelectorAll('.cal-point').forEach((point, index) => {
             point.addEventListener('click', (e) => {

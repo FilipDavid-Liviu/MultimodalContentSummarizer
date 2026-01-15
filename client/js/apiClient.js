@@ -88,6 +88,23 @@ class APIClient {
             return false;
         }
     }
+
+    /**
+     * Register text content with the server
+     */
+    async registerContent(contentMap) {
+        try {
+            const response = await fetch(`${this.serverUrl}/register-content`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: contentMap })
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('Error registering content:', error);
+            throw error;
+        }
+    }
 }
 
 // Export for use in other modules

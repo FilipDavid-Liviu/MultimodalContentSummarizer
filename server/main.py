@@ -189,3 +189,37 @@ async def model_info():
         })
     
     return info
+
+content_store = {}
+
+
+@app.post("/register-content")
+async def register_content(payload: dict):
+    """
+    Stores the mapping of paragraph IDs to actual text content.
+    Expects format: {"content": {"p1": "text", "p2": "text"}}
+    """
+    global content_store
+
+    # Extract the map sent by the frontend
+    received_map = payload.get("content", {})
+
+    if not isinstance(received_map, dict):
+        return {"status": "error", "message": "Invalid content format"}
+
+    # Update the global store
+    content_store = received_map
+
+    import logging
+    logger = logging.getLogger("uvicorn")
+    logger.info(f"Registered {len(content_store)} paragraphs.")
+
+    # Log the IDs we now hold
+    for p_id in content_store.keys():
+        logger.info(f"Stored content for ID: {p_id}")
+
+    return {
+        "status": "success",
+        "paragraphs_received": len(content_store),
+        "ids": list(content_store.keys())
+    }

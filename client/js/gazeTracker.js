@@ -198,10 +198,10 @@ class GazeTracker {
      * Clear all AOI highlights
      */
     clearHighlights() {
-        document.querySelectorAll('p').forEach(p => {
-            p.classList.remove('active-aoi');
-        });
-    }
+        document.querySelectorAll('#content-container p').forEach(p => {
+        p.classList.remove('active-aoi');
+    });
+}
 
     /**
      * Get initialization status

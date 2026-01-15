@@ -1,0 +1,4 @@
+This is a header (ignored)
+> This is the first paragraph.
+Some metadata (ignored)
+> This is the second paragraph.

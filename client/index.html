@@ -8,6 +8,7 @@
     <script src="js/bluetooth.js"></script>
     <script src="js/dataCollector.js"></script>
     <script src="js/apiClient.js"></script>
+    <script src="js/contentManager.js"></script>
     <script src="js/app.js"></script>
     <style>
         body { font-family: 'Georgia', serif; line-height: 1.6; margin: 0; padding: 0; }
@@ -38,16 +39,113 @@
         /* Calibration UI */
         #calibration-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #f0f0f0; z-index: 100; text-align: center; padding-top: 10%;
+            background: rgba(240, 240, 240, 0.95); z-index: 10000; text-align: center; padding-top: 5%;
+            overflow: hidden;
         }
         .cal-point {
-            width: 40px; height: 40px; background: red; border-radius: 50%;
-            position: absolute; cursor: pointer; border: 3px solid white;
-            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            width: 50px; height: 50px; background: #f44336; border-radius: 50%;
+            position: absolute; cursor: pointer; border: 4px solid white;
+            box-shadow: 0 0 20px rgba(244, 67, 54, 0.8), 0 0 40px rgba(244, 67, 54, 0.4);
+            transition: all 0.3s ease;
+            z-index: 10002;
+        }
+        .cal-point:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 30px rgba(244, 67, 54, 1), 0 0 60px rgba(244, 67, 54, 0.6);
+        }
+        .cal-point.calibrated {
+            background: #4caf50;
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.8), 0 0 40px rgba(76, 175, 80, 0.4);
+        }
+        .cal-point.calibrating {
+            background: #ff9800;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+        }
+        .cal-instructions {
+            background: white; padding: 20px; border-radius: 10px; 
+            max-width: 600px; margin: 20px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 10001; position: relative;
+        }
+        .cal-progress {
+            margin-top: 15px; font-size: 14px; color: #666;
+        }
+        .cal-progress-bar {
+            width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; margin-top: 5px;
+            overflow: hidden;
+        }
+        .cal-progress-fill {
+            height: 100%; background: #4caf50; transition: width 0.3s ease;
+        }
+        
+        /* WebGazer Video Grid Overlay */
+        #webgazerVideoContainer {
+            position: relative;
+        }
+        .webgazer-grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            border: 3px solid #4caf50;
+            box-sizing: border-box;
+        }
+        .webgazer-grid-line {
+            position: absolute;
+            background: rgba(76, 175, 80, 0.5);
+            pointer-events: none;
+        }
+        .webgazer-grid-line.horizontal {
+            width: 100%;
+            height: 2px;
+            left: 0;
+        }
+        .webgazer-grid-line.horizontal.top {
+            top: 33.33%;
+        }
+        .webgazer-grid-line.horizontal.bottom {
+            top: 66.66%;
+        }
+        .webgazer-grid-line.vertical {
+            width: 2px;
+            height: 100%;
+            top: 0;
+        }
+        .webgazer-grid-line.vertical.left {
+            left: 33.33%;
+        }
+        .webgazer-grid-line.vertical.right {
+            left: 66.66%;
+        }
+        .webgazer-head-position-guide {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 1001;
+            pointer-events: none;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        .webgazer-head-position-guide strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #4caf50;
         }
         
         /* Controls */
-        #controls { position: fixed; top: 10px; right: 10px; z-index: 500; background: white; padding: 10px; border: 1px solid #ccc; }
+        #controls { position: fixed; top: 10px; right: 10px; z-index: 10001; background: white; padding: 10px; border: 1px solid #ccc; }
         button { padding: 10px; cursor: pointer; font-weight: bold; margin-bottom: 5px; display: block; width: 100%; }
         #debug-indicator { color: red; font-weight: bold; font-size: 12px; margin-bottom: 5px; display: none; }
     </style>
@@ -55,17 +153,42 @@
 <body>
 
     <div id="calibration-overlay">
-        <h2>Calibration Phase</h2>
-        <p>1. STARE at a red dot.<br>2. CLICK it 3-5 times while looking at it.<br>3. Do this for all 4 dots.</p>
-        <div class="cal-point" style="top: 20%; left: 20%;"></div>
-        <div class="cal-point" style="top: 20%; right: 20%;"></div>
-        <div class="cal-point" style="bottom: 20%; left: 20%;"></div>
-        <div class="cal-point" style="bottom: 20%; right: 20%;"></div>
-        <button style="margin-top: 20px;">Finish & Start Reading</button>
+        <div class="cal-instructions">
+            <h2>Eye Tracking Calibration</h2>
+            <p><strong>Instructions:</strong></p>
+            <ol style="text-align: left; margin: 15px 0;">
+                <li>Position your head so your face is centered in the webcam view</li>
+                <li>Keep your head still and look directly at each red dot</li>
+                <li>Click each dot 3-5 times while maintaining eye contact with it</li>
+                <li>Complete all 9 points for best accuracy</li>
+            </ol>
+            <div class="cal-progress">
+                <div>Progress: <span id="cal-progress-text">0/9 points calibrated</span></div>
+                <div class="cal-progress-bar">
+                    <div class="cal-progress-fill" id="cal-progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 9-point grid calibration points -->
+        <div class="cal-point" data-point="1" style="top: 15%; left: 15%;"></div>
+        <div class="cal-point" data-point="2" style="top: 15%; left: 50%; transform: translateX(-50%);"></div>
+        <div class="cal-point" data-point="3" style="top: 15%; right: 15%;"></div>
+        <div class="cal-point" data-point="4" style="top: 50%; left: 15%; transform: translateY(-50%);"></div>
+        <div class="cal-point" data-point="5" style="top: 50%; left: 50%; transform: translate(-50%, -50%);"></div>
+        <div class="cal-point" data-point="6" style="top: 50%; right: 15%; transform: translateY(-50%);"></div>
+        <div class="cal-point" data-point="7" style="bottom: 15%; left: 15%;"></div>
+        <div class="cal-point" data-point="8" style="bottom: 15%; left: 50%; transform: translateX(-50%);"></div>
+        <div class="cal-point" data-point="9" style="bottom: 15%; right: 15%;"></div>
+        
+        <button id="cal-finish-btn" style="margin-top: 30px; padding: 15px 30px; font-size: 16px; display: none;">Finish Calibration & Start Reading</button>
     </div>
 
     <div id="controls">
-        <div id="debug-indicator"> MOUSE DEBUG MODE ON</div>
+        <div style="margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 5px;">Upload Reading Material:</label>
+            <input type="file" id="text-file-input" accept=".txt" style="font-size: 12px; width: 100%;">
+        </div>
         <div id="server-status">Server: Checking...</div>
         <div id="bluetooth-status">Bluetooth: Not connected</div>
         <button id="connect-bluetooth">Connect Polar Verity Sense</button>

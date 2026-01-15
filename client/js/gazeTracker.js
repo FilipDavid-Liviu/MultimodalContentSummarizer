@@ -134,16 +134,47 @@ class GazeTracker {
     calibrate(event, element) {
         if (this.config.useMouseDebug) return;
 
-        webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
-        
-        // Visual feedback
-        if (element) {
-            element.style.backgroundColor = '#00ff00';
-            element.style.transform = "scale(0.8)";
+        if (!element) return;
+
+        // Prevent double-clicking
+        if (element.classList.contains('calibrating') || element.classList.contains('calibrated')) {
+            return;
         }
 
-        // Record multiple times for better calibration
-        webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+        // Add calibrating class for visual feedback
+        element.classList.add('calibrating');
+        
+        // Record calibration point multiple times for better accuracy
+        const clickCount = 5; // Increased for better accuracy
+        let recorded = 0;
+        
+        const recordCalibration = () => {
+            webgazer.recordScreenPosition(event.clientX, event.clientY, 'click');
+            recorded++;
+            
+            if (recorded < clickCount) {
+                setTimeout(recordCalibration, 80);
+            } else {
+                // Mark as calibrated
+                element.classList.remove('calibrating');
+                element.classList.add('calibrated');
+                
+                // Store calibration data
+                const pointId = element.getAttribute('data-point');
+                if (pointId && window.calibrationProgress) {
+                    window.calibrationProgress.calibrated.add(pointId);
+                }
+                
+                // Update calibration progress
+                if (window.updateCalibrationProgress) {
+                    window.updateCalibrationProgress();
+                }
+                
+                console.log(`Calibration point ${pointId || 'unknown'} completed`);
+            }
+        };
+        
+        recordCalibration();
     }
 
     /**
@@ -167,10 +198,10 @@ class GazeTracker {
      * Clear all AOI highlights
      */
     clearHighlights() {
-        document.querySelectorAll('p').forEach(p => {
-            p.classList.remove('active-aoi');
-        });
-    }
+        document.querySelectorAll('#content-container p').forEach(p => {
+        p.classList.remove('active-aoi');
+    });
+}
 
     /**
      * Get initialization status

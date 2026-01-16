@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CAPLAN: Content Summariser</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            background: #fafafa;
+            color: #18181b;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 48px 24px;
+        }
+        
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .subtitle {
+            color: #71717a;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+        
+        .section {
+            background: white;
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .section-title {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            color: #18181b;
+        }
+        
+        .file-input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        input[type="file"] {
+            flex: 1;
+            font-size: 14px;
+            color: #71717a;
+        }
+        
+        button {
+            background: #18181b;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.15s;
+        }
+        
+        button:hover {
+            background: #27272a;
+        }
+        
+        button:disabled {
+            background: #a1a1aa;
+            cursor: not-allowed;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-box {
+            background: #f4f4f5;
+            padding: 12px 20px;
+            border-radius: 6px;
+            text-align: center;
+            min-width: 80px;
+        }
+        
+        .stat-number {
+            font-size: 20px;
+            font-weight: 600;
+            color: #18181b;
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .paragraph-card {
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            background: white;
+        }
+        
+        .paragraph-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        
+        .emotion-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .emotion-badge.confusion {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .emotion-badge.frustration {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .emotion-badge.sleepiness {
+            background: #f3e8ff;
+            color: #6b21a8;
+        }
+        
+        .emotion-badge.normal,
+        .emotion-badge.focused-interest {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .emotion-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        
+        .confusion .emotion-dot { background: #f59e0b; }
+        .frustration .emotion-dot { background: #ef4444; }
+        .sleepiness .emotion-dot { background: #a855f7; }
+        .normal .emotion-dot, .focused-interest .emotion-dot { background: #22c55e; }
+        
+        .text-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+        }
+        
+        .original-text {
+            color: #52525b;
+            font-size: 14px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: #fafafa;
+            border-radius: 6px;
+            border-left: 2px solid #e4e4e7;
+        }
+        
+        .summary-text {
+            color: #18181b;
+            font-size: 14px;
+            padding: 16px;
+            background: #f0fdf4;
+            border-radius: 6px;
+            border-left: 2px solid #22c55e;
+        }
+        
+        .no-summary {
+            color: #22c55e;
+            font-size: 14px;
+            padding: 16px;
+            background: #f0fdf4;
+            border-radius: 6px;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #71717a;
+            font-size: 14px;
+            padding: 16px;
+            background: #fafafa;
+            border-radius: 6px;
+        }
+        
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e4e4e7;
+            border-top-color: #18181b;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error {
+            color: #991b1b;
+            font-size: 14px;
+            padding: 16px;
+            background: #fef2f2;
+            border-radius: 6px;
+        }
+        
+        #status {
+            color: #71717a;
+            font-size: 14px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: #a1a1aa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Content Summariser</h1>
+        <p class="subtitle">Upload gaze analysis output to get AI-powered summaries for difficult sections</p>
+        
+        <div class="section">
+            <div class="section-title">Upload File</div>
+            <div class="file-input-wrapper">
+                <input type="file" id="file-input" accept=".txt">
+                <button id="process-btn" onclick="processFile()">Process</button>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">Results</div>
+            <div id="stats" class="stats" style="display: none;"></div>
+            <div id="results">
+                <div class="empty-state">
+                    <p id="status">Upload a file to begin</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GEMINI_API_KEY = 'your_api_key';
+        const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+        
+        function needsSummary(emotion) {
+            return emotion !== 'normal';
+        }
+        
+        function parseOutputFile(content) {
+            const paragraphs = [];
+            const lines = content.split('\n');
+            let currentParagraph = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                if (line.startsWith('>')) {
+                    currentParagraph = line.substring(1).trim();
+                } else if (currentParagraph && line.length > 0) {
+                    paragraphs.push({
+                        text: currentParagraph,
+                        emotion: line.toLowerCase()
+                    });
+                    currentParagraph = null;
+                }
+            }
+            
+            return paragraphs;
+        }
+        
+        function getPromptForEmotion(paragraph, emotion) {
+            const prompts = {
+                confusion: `The following paragraph was identified as CONFUSING to a reader. Rewrite it in clearer, simpler language. Keep key information but use simpler words and shorter sentences.
+
+Original:
+"${paragraph}"
+
+Clearer version:`,
+                
+                frustration: `The following paragraph caused FRUSTRATION in a reader due to complexity or jargon. Rewrite it to be more accessible. Simplify technical terms and improve flow.
+
+Original:
+"${paragraph}"
+
+Simpler version:`,
+                
+                sleepiness: `The following paragraph was associated with BOREDOM/SLEEPINESS. Rewrite it to be more engaging and concise.
+
+Original:
+"${paragraph}"
+
+More engaging version:`
+            };
+            
+            // Use specific prompt if available, otherwise use a generic one
+            if (prompts[emotion]) {
+                return prompts[emotion];
+            }
+            
+            // Generic prompt for any other non-normal emotion
+            return `The following paragraph caused difficulty (${emotion.toUpperCase()}) for a reader based on their gaze and physiological data. Rewrite it to be clearer and easier to understand.
+
+Original:
+"${paragraph}"
+
+Improved version:`;
+        }
+        
+        async function summarizeWithGemini(paragraph, emotion) {
+            const prompt = getPromptForEmotion(paragraph, emotion);
+            
+            const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                return data.candidates[0].content.parts[0].text.trim();
+            }
+            throw new Error('Unexpected API response');
+        }
+        
+        function renderParagraphCard(index, paragraph, emotion, summary = null, isLoading = false, error = null) {
+            const shouldSummarize = needsSummary(emotion);
+            
+            let summaryContent = '';
+            if (shouldSummarize) {
+                if (isLoading) {
+                    summaryContent = `
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <span>Generating simplified version...</span>
+                        </div>`;
+                } else if (error) {
+                    summaryContent = `<div class="error">Error: ${error}</div>`;
+                } else if (summary) {
+                    summaryContent = `
+                        <div class="text-label">Simplified Version</div>
+                        <div class="summary-text">${summary}</div>`;
+                }
+            } else {
+                summaryContent = `<div class="no-summary">No simplification needed</div>`;
+            }
+            
+            const emotionLabel = emotion.replace('-', ' ');
+            
+            return `
+                <div class="paragraph-card" id="card-${index}">
+                    <div class="paragraph-header">
+                        <span class="emotion-badge ${emotion}">
+                            <span class="emotion-dot"></span>
+                            ${emotionLabel}
+                        </span>
+                    </div>
+                    <div class="text-label">Original</div>
+                    <div class="original-text">${paragraph}</div>
+                    ${summaryContent}
+                </div>
+            `;
+        }
+        
+        function updateStats(paragraphs) {
+            const normal = paragraphs.filter(p => !needsSummary(p.emotion)).length;
+            const toSimplify = paragraphs.filter(p => needsSummary(p.emotion)).length;
+            
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-box">
+                    <div class="stat-number">${paragraphs.length}</div>
+                    <div class="stat-label">Total</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">${normal}</div>
+                    <div class="stat-label">Clear</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">${toSimplify}</div>
+                    <div class="stat-label">To Simplify</div>
+                </div>
+            `;
+            document.getElementById('stats').style.display = 'flex';
+        }
+        
+        async function processFile() {
+            const fileInput = document.getElementById('file-input');
+            const resultsDiv = document.getElementById('results');
+            const processBtn = document.getElementById('process-btn');
+            
+            if (!fileInput.files?.length) {
+                alert('Please select a file first.');
+                return;
+            }
+            
+            try {
+                processBtn.disabled = true;
+                processBtn.textContent = 'Processing...';
+                
+                const content = await fileInput.files[0].text();
+                const paragraphs = parseOutputFile(content);
+                
+                if (paragraphs.length === 0) {
+                    resultsDiv.innerHTML = '<div class="error">No paragraphs found. Check file format.</div>';
+                    return;
+                }
+                
+                updateStats(paragraphs);
+                
+                resultsDiv.innerHTML = paragraphs.map((p, i) => 
+                    renderParagraphCard(i, p.text, p.emotion, null, needsSummary(p.emotion))
+                ).join('');
+                
+                for (let i = 0; i < paragraphs.length; i++) {
+                    const p = paragraphs[i];
+                    
+                    if (needsSummary(p.emotion)) {
+                        try {
+                            const summary = await summarizeWithGemini(p.text, p.emotion);
+                            document.getElementById(`card-${i}`).outerHTML = 
+                                renderParagraphCard(i, p.text, p.emotion, summary);
+                        } catch (error) {
+                            document.getElementById(`card-${i}`).outerHTML = 
+                                renderParagraphCard(i, p.text, p.emotion, null, false, error.message);
+                        }
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            } finally {
+                processBtn.disabled = false;
+                processBtn.textContent = 'Process';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -305,21 +305,21 @@
         
         function getPromptForEmotion(paragraph, emotion) {
             const prompts = {
-                confusion: `The following paragraph was identified as CONFUSING to a reader. Rewrite it in clearer, simpler language. Keep key information but use simpler words and shorter sentences.
+                confusion: `The following paragraph was identified as CONFUSING to a reader. Rewrite it in clearer, simpler language. Keep key information but use simpler words and shorter sentences. Do not use any words of your own like "Here's xyz..:", please just rewrite the paragraph summarised.
 
 Original:
 "${paragraph}"
 
 Clearer version:`,
                 
-                frustration: `The following paragraph caused FRUSTRATION in a reader due to complexity or jargon. Rewrite it to be more accessible. Simplify technical terms and improve flow.
+                frustration: `The following paragraph caused FRUSTRATION in a reader due to complexity or jargon. Rewrite it to be more accessible. Simplify technical terms and improve flow. Do not use any words of your own like "Here's xyz..:", please just rewrite the paragraph summarised.
 
 Original:
 "${paragraph}"
 
 Simpler version:`,
                 
-                sleepiness: `The following paragraph was associated with BOREDOM/SLEEPINESS. Rewrite it to be more engaging and concise.
+                sleepiness: `The following paragraph was associated with BOREDOM/SLEEPINESS. Rewrite it to be more engaging and concise. Do not use any words of your own like "Here's xyz..:", please just rewrite the paragraph summarised.
 
 Original:
 "${paragraph}"
@@ -333,7 +333,7 @@ More engaging version:`
             }
             
             // Generic prompt for any other non-normal emotion
-            return `The following paragraph caused difficulty (${emotion.toUpperCase()}) for a reader based on their gaze and physiological data. Rewrite it to be clearer and easier to understand.
+            return `The following paragraph caused difficulty (${emotion.toUpperCase()}) for a reader based on their gaze and physiological data. Rewrite it to be clearer and easier to understand. Do not use any words of your own like "Here's xyz..:", please just rewrite the paragraph summarised.
 
 Original:
 "${paragraph}"
@@ -344,25 +344,54 @@ Improved version:`;
         async function summarizeWithGemini(paragraph, emotion) {
             const prompt = getPromptForEmotion(paragraph, emotion);
             
+            console.log('=== GEMINI API REQUEST ===');
+            console.log('Emotion:', emotion);
+            console.log('Prompt length:', prompt.length);
+            console.log('Prompt:', prompt);
+            
+            const requestBody = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { 
+                    temperature: 0.7, 
+                    maxOutputTokens: 2048  // Increased from 500
+                }
+            };
+            
+            console.log('Request body:', JSON.stringify(requestBody, null, 2));
+            
             const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-                })
+                body: JSON.stringify(requestBody)
             });
+            
+            console.log('Response status:', response.status);
             
             if (!response.ok) {
                 const errorData = await response.json();
+                console.error('API Error:', errorData);
                 throw new Error(errorData.error?.message || `HTTP ${response.status}`);
             }
             
             const data = await response.json();
             
-            if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                return data.candidates[0].content.parts[0].text.trim();
+            console.log('=== GEMINI API RESPONSE ===');
+            console.log('Full response:', JSON.stringify(data, null, 2));
+            
+            if (data.candidates?.[0]) {
+                const candidate = data.candidates[0];
+                console.log('Finish reason:', candidate.finishReason);
+                console.log('Safety ratings:', candidate.safetyRatings);
+                
+                if (candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text.trim();
+                    console.log('Extracted text length:', text.length);
+                    console.log('Extracted text:', text);
+                    return text;
+                }
             }
+            
+            console.error('Unexpected response structure:', data);
             throw new Error('Unexpected API response');
         }
         
@@ -382,7 +411,7 @@ Improved version:`;
                 } else if (summary) {
                     summaryContent = `
                         <div class="text-label">Simplified Version</div>
-                        <div class="summary-text">${summary}</div>`;
+                        <div class="summary-text text-wrap">${summary}</div>`;
                 }
             } else {
                 summaryContent = `<div class="no-summary">No simplification needed</div>`;

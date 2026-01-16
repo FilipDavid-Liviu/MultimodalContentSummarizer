@@ -213,6 +213,25 @@ class GazeTracker {
             useMouseDebug: this.config.useMouseDebug
         };
     }
+    calculateAccuracy() {
+        // 1. Ask user to look at a specific point (e.g., center of the screen)
+        const targetX = window.innerWidth / 2;
+        const targetY = window.innerHeight / 2;
+        
+        // 2. Capture 50 samples while they stare at that point
+        let samples = [];
+        const collect = (data) => {
+            const dist = Math.sqrt(Math.pow(data.x - targetX, 2) + Math.pow(data.y - targetY, 2));
+            samples.push(dist);
+        };
+
+        // 3. Return Mean Error and Standard Deviation (Precision)
+        const meanError = samples.reduce((a, b) => a + b, 0) / samples.length;
+        return {
+            accuracyPixels: meanError,
+            isReliable: meanError < 100 // Threshold for your 120px paragraph gaps
+        };
+    }
 }
 
 // Export for use in other modules

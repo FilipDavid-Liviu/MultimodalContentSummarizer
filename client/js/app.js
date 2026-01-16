@@ -227,35 +227,94 @@ function setupCallbacks() {
 /**
  * Start experiment
  */
-function startExperiment() {
-    // Hide calibration overlay
-    const overlay = document.getElementById('calibration-overlay');
-    if (overlay) {
-        overlay.style.display = 'none';
-    }
+async function startExperiment() {
+    // 1. Prepare Validation UI
+    const instructions = document.querySelector('.cal-instructions');
+    instructions.innerHTML = `
+        <h2 style="color: #2196F3;">Accuracy Validation</h2>
+        <p>Keep your head still and <strong>stare at the blue dot</strong> in the center for 5 seconds.</p>
+        <div id="val-timer" style="font-size: 24px; font-weight: bold; margin: 10px;">5</div>
+    `;
+    
+    // Hide all calibration red dots
+    document.querySelectorAll('.cal-point').forEach(p => p.style.display = 'none');
+    document.getElementById('cal-finish-btn').style.display = 'none';
 
-    // Show content
-    const content = document.getElementById('content-container');
-    if (content) {
-        content.style.display = 'block';
-    }
+    // Create a central Validation Target (Blue Dot)
+    const valTarget = document.createElement('div');
+    valTarget.style.cssText = "width: 30px; height: 30px; background: #2196F3; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10005; border: 4px solid white; box-shadow: 0 0 15px rgba(33, 150, 243, 0.8);";
+    document.getElementById('calibration-overlay').appendChild(valTarget);
 
-    // Start recording
-    isRecording = true;
+    // 2. Data Collection for Accuracy
+    const samples = [];
+    const targetX = window.innerWidth / 2;
+    const targetY = window.innerHeight / 2;
+
+    const valCallback = (data) => {
+        const dist = Math.sqrt(Math.pow(data.x - targetX, 2) + Math.pow(data.y - targetY, 2));
+        samples.push(dist);
+    };
+
+    // Temporarily listen for accuracy data
+    gazeTracker.onGazeUpdate(valCallback);
     gazeTracker.start();
-    dataCollector.start();
 
-    // Start periodic window check (every 1 second)
-    if (windowCheckInterval) {
-        clearInterval(windowCheckInterval);
-    }
-    windowCheckInterval = setInterval(() => {
-        if (isRecording) {
-            dataCollector.checkWindowComplete();
+    // 3. Countdown Timer (5 seconds)
+    let timeLeft = 5;
+    const timerInterval = setInterval(() => {
+        timeLeft--;
+        document.getElementById('val-timer').textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            finishValidation(samples, valTarget);
         }
     }, 1000);
+}
 
-    console.log('Experiment started');
+/**
+ * Process Validation Results and Start Reading
+ */
+function finishValidation(samples, targetElement) {
+    // Stop recording temporary validation data
+    gazeTracker.stop();
+    targetElement.remove();
+
+    // Calculate Numbers
+    const meanError = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+    const paragraphGap = 120; // Your CSS margin-bottom
+    const isReliable = meanError < paragraphGap;
+
+    console.log(`Validation Results: Mean Error = ${meanError}px`);
+
+    // Show Results to User
+    const instructions = document.querySelector('.cal-instructions');
+    instructions.innerHTML = `
+        <h2 style="${isReliable ? 'color: #4caf50' : 'color: #f44336'}">Validation Complete</h2>
+        <p>Spatial Error: <strong>${meanError}px</strong></p>
+        <p>${isReliable ? '✓ Reliable for paragraph detection.' : '⚠ Low accuracy. Try to keep head still.'}</p>
+        <button id="final-start-btn" style="background: #4caf50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">Start Reading Now</button>
+    `;
+
+    document.getElementById('final-start-btn').onclick = () => {
+        // Final transition to content
+        document.getElementById('calibration-overlay').style.display = 'none';
+        document.getElementById('content-container').style.display = 'block';
+        
+        // Final Setup of the actual Gaze Callback for the experiment
+        gazeTracker.onGazeUpdate((gazeData) => {
+            dataCollector.addGazePoint(gazeData.x, gazeData.y, gazeData.aoiID, gazeData.timestamp);
+            updateStatus();
+        });
+
+        // Start real recording
+        isRecording = true;
+        gazeTracker.start();
+        dataCollector.start();
+        
+        // Window check interval
+        if (windowCheckInterval) clearInterval(windowCheckInterval);
+        windowCheckInterval = setInterval(() => { if (isRecording) dataCollector.checkWindowComplete(); }, 1000);
+    };
 }
 
 /**

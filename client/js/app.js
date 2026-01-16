@@ -374,7 +374,7 @@ function updateBluetoothStatus(connected, message) {
     const btEl = document.getElementById('bluetooth-status');
     if (btEl) {
         if (connected) {
-            btEl.textContent = `Bluetooth: Connected (${message})`;
+            btEl.textContent = `Bluetooth: Connected`;
             btEl.style.color = 'green';
         } else {
             btEl.textContent = `Bluetooth: ${message}`;
